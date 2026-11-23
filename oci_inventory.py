@@ -74,16 +74,16 @@ db-name db-workload private-endpoint-ip private-endpoint-label cpu-core-count
 compute-count compute-model db-version hostname backend-sets listeners'''.split())
 LINKS = {
     'vcn-id':'VCN', 'subnet-id':'Subnet', 'subnet-ids':'Subnet',
-    'attached-vcn-id':'VCN del resolver', 'default-view-id':'View predefinita',
-    'view-id':'View DNS', 'nsg-ids':'Network Security Group',
+    'attached-vcn-id':'Resolver VCN', 'default-view-id':'Default view',
+    'view-id':'DNS view', 'nsg-ids':'Network Security Group',
     'security-list-ids':'Security List', 'dhcp-options-id':'DHCP Options',
     'route-table-id':'Route table', 'drg-id':'DRG', 'drg-route-table-id':'DRG route table',
-    'network-id':'Rete collegata', 'peer-id':'Peering', 'vnic-id':'VNIC',
-    'private-ip-id':'IP privato', 'assigned-entity-id':'Entità assegnata',
-    'instance-id':'Istanza', 'volume-id':'Volume di origine', 'boot-volume-id':'Boot volume di origine',
-    'image-id':'Immagine', 'asset-id':'Volume protetto', 'policy-id':'Policy di backup',
-    'target-resource-id':'Target', 'source-boot-volume-backup-id':'Backup sorgente',
-    'source-volume-backup-id':'Backup sorgente',
+    'network-id':'Attached network', 'peer-id':'Peering', 'vnic-id':'VNIC',
+    'private-ip-id':'Private IP', 'assigned-entity-id':'Assigned entity',
+    'instance-id':'Instance', 'volume-id':'Source volume', 'boot-volume-id':'Source boot volume',
+    'image-id':'Image', 'asset-id':'Protected volume', 'policy-id':'Backup policy',
+    'target-resource-id':'Target', 'source-boot-volume-backup-id':'Source backup',
+    'source-volume-backup-id':'Source backup',
 }
 FIELDS.update(LINKS)
 NETWORK_TYPES = set('''Vcn Subnet Vnic PrivateIp PublicIp RouteTable InternetGateway NatGateway
@@ -91,7 +91,7 @@ ServiceGateway Drg DrgAttachment DrgRouteTable RemotePeeringConnection LocalPeer
 DHCPOptions NetworkSecurityGroup SecurityList CustomerDnsZone DnsZone DnsResolver DnsView
 IpSecConnection VirtualCircuit LoadBalancer NetworkLoadBalancer'''.split())
 GLOBAL_PREFIXES = {'policy','compartment','user','group','domain','dynamicgroup','tagdefault','tagnamespace','tenancy'}
-SHEETS = ('Inventario', 'Compute e Storage', 'Networking', 'Security', 'Backup', 'IAM')
+SHEETS = ('Inventory', 'Compute and Storage', 'Networking', 'Security', 'Backup', 'IAM')
 BACKUP_ASSIGNMENT_OP = 'bv volume-backup-policy-assignment get-volume-backup-policy-asset-assignment'
 NSG_RULES_OP = 'network nsg rules list'
 
@@ -183,7 +183,7 @@ class Inventory:
         canonical = self.region_keys.get(encoded_region.lower(), encoded_region)
         if self.origin == 'OCI CLI' and region and canonical and '-' not in canonical:
             canonical = region
-        scope = 'Globale' if global_kind(kind, oid) else canonical or region or ''
+        scope = 'Global' if global_kind(kind, oid) else canonical or region or ''
         key = oid if oid.startswith('ocid1.') else '|'.join((scope, raw.get('compartment-id') or '', kind, oid))
         res = self.resources.setdefault(key, {
             'id': oid, 'kind': kind, 'region': scope, 'data': {}, 'sources': set(),
@@ -194,7 +194,7 @@ class Inventory:
             for k, v in segment.items():
                 if k in FIELDS and v is not None:
                     res['data'][k] = v
-        if scope and scope != 'Globale':
+        if scope and scope != 'Global':
             self.regions.add(scope)
         if kind == 'Tenancy':
             self.roots.add(oid)
@@ -233,35 +233,35 @@ class Inventory:
                 for target in many(row.get(field)):
                     self.link(key, target, relation)
             for item in row.get('attached-views') or []:
-                self.link(key, item.get('view-id'), 'View DNS associata')
+                self.link(key, item.get('view-id'), 'Attached DNS view')
             network = row.get('network-details') or {}
-            self.link(key, network.get('id'), 'Rete collegata')
+            self.link(key, network.get('id'), 'Attached network')
             for route in row.get('route-rules') or []:
                 dest = route.get('destination') or route.get('cidr-block')
                 self.link(key, route.get('network-entity-id'), 'Next hop', dest)
             for target in row.get('resources') or []:
                 if isinstance(target, dict):
-                    self.link(key, target.get('id'), 'Target schedule')
+                    self.link(key, target.get('id'), 'Schedule target')
             if res['kind'] == 'Instance':
                 source = row.get('source-details') or {}
-                self.link(key, source.get('image-id'), 'Immagine')
+                self.link(key, source.get('image-id'), 'Image')
             for field, direction in [('ingress-security-rules','INGRESS'),('egress-security-rules','EGRESS')]:
                 for rule in row.get(field) or []:
                     self.rules.append((key, direction, rule))
             if row.get('lifecycle-state') == 'ATTACHED':
                 vm = row.get('instance-id')
                 if res['kind'] == 'VnicAttachment':
-                    self.link(vm, row.get('vnic-id'), 'Interfaccia collegata', res['id'])
+                    self.link(vm, row.get('vnic-id'), 'Attached network interface', res['id'])
                 if res['kind'] == 'BootVolumeAttachment':
-                    self.link(vm, row.get('boot-volume-id'), 'Boot volume collegato', res['id'])
+                    self.link(vm, row.get('boot-volume-id'), 'Attached boot volume', res['id'])
                 if res['kind'] == 'VolumeAttachment':
-                    self.link(vm, row.get('volume-id'), 'Block volume collegato', res['id'])
+                    self.link(vm, row.get('volume-id'), 'Attached block volume', res['id'])
         for key, member in self.members:
-            self.link(member, key, 'Membro del gruppo')
+            self.link(member, key, 'Member of group')
         for key, direction, rule in self.rules:
             peer = rule.get('source') if direction == 'INGRESS' else rule.get('destination')
             if isinstance(peer, str) and peer.startswith('ocid1.'):
-                self.link(key, peer, 'Riferimento in regola '+direction, rule.get('id'))
+                self.link(key, peer, 'Referenced in rule: '+direction, rule.get('id'))
 
 class MarioAnimation:
     """Terminal progress animation."""
@@ -590,7 +590,7 @@ def collect_live(args, inv):
             if not page:
                 break
             if page in tokens:
-                inv.issues.append((region,'Resource Search','','Token di paginazione ripetuto'))
+                inv.issues.append((region,'Resource Search','','Repeated pagination token'))
                 break
             tokens.add(page)
     print(f'[{home}] IAM: users, groups, domains and policies', file=sys.stderr, flush=True)
@@ -633,10 +633,10 @@ def collect_live(args, inv):
             if kind in ('Volume','BootVolume'):
                 result = cli.run(BACKUP_ASSIGNMENT_OP, region, asset_id=key)
                 if result is None:
-                    inv.assignment_results[key] = 'Da verificare'
+                    inv.assignment_results[key] = 'Needs verification'
                 else:
                     rows = response_list(result)
-                    inv.assignment_results[key] = rows[0]['policy-id'] if rows else 'Non assegnata'
+                    inv.assignment_results[key] = rows[0]['policy-id'] if rows else 'Not assigned'
                     for row in rows:
                         inv.add('VolumeBackupPolicyAssignment', row, region, BACKUP_ASSIGNMENT_OP)
         vm_domains = collections.defaultdict(set)
@@ -668,7 +668,7 @@ def collect_live(args, inv):
             for row in cli.rows('network private-ip list',region,vnic_id=nic,all=True):
                 inv.add('PrivateIp',row,region,'network private-ip list')
     if not any(op=='search resource structured-search' for _,op in inv.checked):
-        inv.issues.append(('', 'Copertura Resource Search', '', 'Nessuna region interrogata con successo; dati limitati alle API di servizio riuscite.'))
+        inv.issues.append(('', 'Resource Search coverage', '', 'No region returned a successful Resource Search response. Coverage is limited to successful service API calls.'))
     if len(inv.resources) == 1 and not any(op == 'search resource structured-search' for _,op in inv.checked):
         raise ValueError('No inventory collected. Check the OCI profile, tenancy, regions and permissions.')
 
@@ -694,12 +694,12 @@ def load_exports(path, inv, region):
 
     def read_json(name, content):
         if not content.strip():
-            inv.issues.append(('', 'Import JSON', name, 'File vuoto'))
+            inv.issues.append(('', 'JSON import', name, 'Empty file'))
             return
         try:
             doc = json.loads(content)
         except (ValueError, UnicodeError):
-            inv.issues.append(('', 'Import JSON', name, 'JSON illeggibile'))
+            inv.issues.append(('', 'JSON import', name, 'Invalid JSON'))
             return
         # Rule IDs are unique only within their NSG.
         envelope = doc if isinstance(doc, dict) else {}
@@ -710,7 +710,7 @@ def load_exports(path, inv, region):
         if not isinstance(parent, str) or not parent.startswith('ocid1.networksecuritygroup.'):
             parent = None
         if parent and envelope.get('opc-next-page'):
-            inv.issues.append((region, 'Import regole NSG', name, 'Elenco paginato: verificare la copertura'))
+            inv.issues.append((region, 'NSG rule import', name, 'Paginated list: verify coverage'))
         elif parent and (doc == [] or envelope.get('data') == []):
             inv.add('NetworkSecurityGroup', {'id': parent}, region, name)
             inv.empty_nsgs.add(parent)
@@ -734,10 +734,10 @@ def load_exports(path, inv, region):
             kind = row.get('resource-type') or TYPE_BY_OCID.get(ocid_type, ocid_type or 'Resource')
             inv.add(kind,row,region,name)
         if missing_owner:
-            inv.issues.append((region, 'Import regole NSG', name,
-                f'{missing_owner} regole con NSG di appartenenza non identificato'))
+            inv.issues.append((region, 'NSG rule import', name,
+                f'{missing_owner} rules with no identifiable parent NSG'))
         if ignored:
-            inv.issues.append(('', 'Import JSON', name, f'{ignored} righe senza identificatore di risorsa'))
+            inv.issues.append(('', 'JSON import', name, f'{ignored} rows without a resource identifier'))
     if path.is_dir():
         for source in sorted(path.rglob('*.json')):
             read_json(str(source.relative_to(path)),source.read_bytes())
@@ -754,8 +754,8 @@ def load_exports(path, inv, region):
         raise ValueError('No recognizable resources found in the selected exports.')
     if len(inv.roots)>1:
         raise ValueError('Exports contain multiple tenancies. Process one tenancy at a time.')
-    inv.origin = 'Export OCI JSON'
-    inv.issues.append(('', 'Copertura offline', '', 'Solo i dati presenti nei JSON sono disponibili. Un campo vuoto indica dettaglio non esportato.'))
+    inv.origin = 'OCI JSON export'
+    inv.issues.append(('', 'Offline coverage', '', 'Only data present in the JSON exports is available. A blank field means the detail was not exported.'))
 
 def rule_fields(direction, row):
     peer = row.get('source') if direction=='INGRESS' else row.get('destination')
@@ -767,17 +767,17 @@ def rule_fields(direction, row):
             return compact(low)
         return f'{low}–{high}'
     icmp = row.get('icmp-options') or {}
-    stateful = {True:'No',False:'Sì'}.get(row.get('is-stateless'),'')
+    stateful = {True:'No',False:'Yes'}.get(row.get('is-stateless'),'')
     return [direction,row.get('protocol'),peer,port('source-port-range'),port('destination-port-range'),
             compact(icmp) if icmp else '',stateful,row.get('description'),row.get('id')]
 
 HEADERS = {
-    'Inventario':['Nome risorsa','Tipo OCI','Compartment','Region / ambito','Stato','IP privato','IP pubblico','CIDR','VCN','Subnet','Risorse associate','OCID / identificatore','Fonte'],
-    'Compute e Storage':['Tipo','Nome','Compartment','Region','AD','Shape','OCPU','RAM (GB)','Dimensione (GB)','VPUs/GB','IP privato','IP pubblico','Relazioni','OCID / identificatore'],
-    'Networking':['Tipo','Nome','Compartment','Region','VCN','Subnet','CIDR / IP','Associazione / destinazione','Next hop / valore','OCID collegato','OCID risorsa'],
-    'Security':['Tipo','Nome','Compartment','Region','Direzione','Protocollo OCI','Sorgente / destinazione','Porta sorgente','Porta destinazione','ICMP','Stateful','Descrizione','ID regola','OCID risorsa'],
-    'Backup':['Tipo','Nome','Compartment','Region','Volume / asset','Policy','Esecuzione','Tipo backup','Creato','Scadenza','GB','Unica (GB)','Stato','Pianificazione','OCID risorsa'],
-    'IAM':['Tipo','Nome','Compartment','Ambito','Stato','Gruppo / endpoint','Statement / dettaglio','OCID risorsa'],
+    'Inventory':['Resource name','OCI resource type','Compartment','Region / scope','State','Private IP','Public IP','CIDR','VCN','Subnet','Related resources','OCID / identifier','Source'],
+    'Compute and Storage':['Type','Name','Compartment','Region','AD','Shape','OCPU','RAM (GB)','Size (GB)','VPUs/GB','Private IP','Public IP','Relationships','OCID / identifier'],
+    'Networking':['Type','Name','Compartment','Region','VCN','Subnet','CIDR / IP','Association / destination','Next hop / value','Related OCID','Resource OCID'],
+    'Security':['Type','Name','Compartment','Region','Direction','OCI protocol','Source / destination','Source port','Destination port','ICMP','Stateful','Description','Rule ID','Resource OCID'],
+    'Backup':['Type','Name','Compartment','Region','Volume / asset','Policy','Backup source type','Backup type','Created','Expiration','GB','Unique size (GB)','State','Schedule','Resource OCID'],
+    'IAM':['Type','Name','Compartment','Scope','State','Group / endpoint','Statement / detail','Resource OCID'],
 }
 def spreadsheet_data(inv):
     compartment_path = lru_cache(maxsize=None)(inv.compartment)
@@ -790,7 +790,7 @@ def spreadsheet_data(inv):
         incoming[b].append((t,a,d))
     def emit(sheet,key,values):
         if len(values)!=len(HEADERS[sheet]):
-            raise ValueError('Numero di colonne errato: '+sheet)
+            raise ValueError('Incorrect column count: '+sheet)
         sheets[sheet].append(values)
         source_rows[key].append((sheet, len(sheets[sheet])+1))
     grouped_rules = collections.defaultdict(list)
@@ -822,11 +822,11 @@ def spreadsheet_data(inv):
         vcn_ids = many(row.get('vcn-id'))+[inv.resources.get(s,{}).get('data',{}).get('vcn-id') for s in subnet_ids]
         subnet = unique(inv.name(s) for s in subnet_ids if s)
         vcn = unique(inv.name(v) for v in vcn_ids if v)
-        emit('Inventario',key,[name,kind,comp,region,state,private,public,cidr,vcn,subnet,assoc,oid,', '.join(sorted(res['sources']))])
+        emit('Inventory',key,[name,kind,comp,region,state,private,public,cidr,vcn,subnet,assoc,oid,', '.join(sorted(res['sources']))])
         if kind in ('Instance','BootVolume','Volume','BootVolumeAttachment','VolumeAttachment','VnicAttachment','Image'):
             shape = row.get('shape-config') or {}
             related = unique([assoc]+[f'{t} ← {inv.name(a)}' for t,a,d in incoming[key] if t!='Compartment'])
-            emit('Compute e Storage',key,[kind,name,comp,region,row.get('availability-domain'),row.get('shape'),shape.get('ocpus'),shape.get('memory-in-gbs'),row.get('size-in-gbs'),row.get('vpus-per-gb'),private,public,related,oid])
+            emit('Compute and Storage',key,[kind,name,comp,region,row.get('availability-domain'),row.get('shape'),shape.get('ocpus'),shape.get('memory-in-gbs'),row.get('size-in-gbs'),row.get('vpus-per-gb'),private,public,related,oid])
         if kind in NETWORK_TYPES:
             base = [kind,name,comp,region,vcn,subnet,cidr or unique([private,public])]
             emit('Networking',key,base+['','','',oid])
@@ -841,7 +841,7 @@ def spreadsheet_data(inv):
             if not rules:
                 description = None
                 if kind == 'NetworkSecurityGroup':
-                    description = 'Nessuna regola (elenco verificato)' if key in inv.empty_nsgs else 'Elenco regole da verificare'
+                    description = 'No rules (verified)' if key in inv.empty_nsgs else 'Rule list needs verification'
                 rules = [[None] * 7 + [description, None]]
             for values in rules:
                 emit('Security',key,[kind,name,comp,region]+values+[oid])
@@ -855,14 +855,14 @@ def spreadsheet_data(inv):
             for schedule in schedules:
                 emit('Backup',key,[kind,name,comp,region,inv.name(asset),policy_text,row.get('source-type'),row.get('type'),row.get('time-created'),row.get('expiration-time'),row.get('size-in-gbs'),row.get('unique-size-in-gbs'),state,compact(schedule),oid])
         if kind in GLOBAL:
-            groups = unique(inv.name(b) for t,b,d in edges if t=='Membro del gruppo')
+            groups = unique(inv.name(b) for t,b,d in edges if t=='Member of group')
             for statement in row.get('statements') or ['']:
                 emit('IAM',key,[kind,name,comp,region,state,groups or row.get('url'),statement,oid])
     for (source, region, _), rule in sorted(inv.unassigned_rules.items()):
         values = rule_fields(rule['direction'], rule)
-        sheets['Security'].append(['Regola NSG', 'NSG non identificato · ' + source, '', region, *values, ''])
+        sheets['Security'].append(['NSG rule', 'Unidentified NSG · ' + source, '', region, *values, ''])
     for region,op,scope,msg in inv.issues:
-        sheets['Inventario'].append(['Raccolta dati','Nota di copertura',scope,region,'','','','','','',msg,'',op])
+        sheets['Inventory'].append(['Data collection','Coverage note',scope,region,'','','','','','',msg,'',op])
     return sheets,source_rows,outgoing,incoming
 
 # Store strings as text to prevent spreadsheet formula execution.
@@ -899,7 +899,7 @@ def write_xlsx(path, sheets):
         for num,(name,rows) in enumerate(sheets.items(),1):
             header=HEADERS[name]
             if len(rows)>=1048576:
-                raise ValueError(f'Il foglio {name} supera il limite di righe Excel.')
+                raise ValueError(f'Worksheet {name} exceeds the Excel row limit.')
             ET.SubElement(book_sheets,'sheet',{'name':name,'sheetId':str(num),'r:id':f'rId{num}'})
             sheetpath=f'worksheets/sheet{num}.xml'
             ET.SubElement(relationships,'Relationship',Id=f'rId{num}',Type=REL+'/worksheet',Target=sheetpath)
@@ -928,7 +928,7 @@ def write_xlsx(path, sheets):
                         c.set('t','inlineStr')
                         text=ET.SubElement(ET.SubElement(c,'is'),'t',{'xml:space':'preserve'})
                         value=re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', compact(val))
-                        text.text=value if len(value)<=32767 else value[:32730]+' […] Dettaglio completo in HTML'
+                        text.text=value if len(value)<=32767 else value[:32730]+' […] Full details in HTML'
             ET.SubElement(sheet,'autoFilter',ref=area)
             z.writestr('xl/'+sheetpath,xmlbytes(sheet))
         z.writestr('xl/workbook.xml',xmlbytes(workbook))
@@ -943,7 +943,7 @@ def table(headers, rows):
     heads=''.join(f'<th>{esc(cell)}</th>' for cell in headers)
     body=''.join('<tr>'+''.join(f'<td>{cell}</td>' for cell in row)+'</tr>' for row in rows)
     if not body:
-        body=f'<tr><td colspan="{len(headers)}">Nessuna riga disponibile.</td></tr>'
+        body=f'<tr><td colspan="{len(headers)}">No rows available.</td></tr>'
     return f'<div class="scroll"><table><thead><tr>{heads}</tr></thead><tbody>{body}</tbody></table></div>'
 
 def html_report(inv, sheets, sources, outgoing, incoming):
@@ -954,12 +954,12 @@ def html_report(inv, sheets, sources, outgoing, incoming):
             return f'<a href="#{anchor(key)}" class="res">{esc(inv.name(key))}</a>'
         return f'<span>{esc(key)}</span>'
     labels = {
-        'Instance': 'Istanze Compute', 'BootVolume': 'Volumi di avvio',
-        'Volume': 'Volumi a blocchi', 'BootVolumeAttachment': 'Associazioni volumi di avvio',
-        'VolumeAttachment': 'Associazioni volumi a blocchi', 'VnicAttachment': 'Associazioni VNIC',
-        'Vcn': 'Reti virtuali (VCN)', 'Vnic': 'Interfacce di rete (VNIC)',
-        'PrivateIp': 'IP privati', 'PublicIp': 'IP pubblici', 'RouteTable': 'Tabelle di routing',
-        'SecurityList': 'Liste di sicurezza', 'NetworkSecurityGroup': 'Gruppi di sicurezza (NSG)',
+        'Instance': 'Compute instances', 'BootVolume': 'Boot volumes',
+        'Volume': 'Block volumes', 'BootVolumeAttachment': 'Boot volume attachments',
+        'VolumeAttachment': 'Block volume attachments', 'VnicAttachment': 'VNIC attachments',
+        'Vcn': 'Virtual cloud networks (VCNs)', 'Vnic': 'Virtual network interface cards (VNICs)',
+        'PrivateIp': 'Private IPs', 'PublicIp': 'Public IPs', 'RouteTable': 'Route tables',
+        'SecurityList': 'Security lists', 'NetworkSecurityGroup': 'Network security groups (NSGs)',
     }
 
     def options(values, names=None):
@@ -974,23 +974,23 @@ def html_report(inv, sheets, sources, outgoing, incoming):
             for index,row in pairs:
                 cells=[esc(v) if v not in (None,'') else '—' for v in row]
                 yield cells+[str(index)]
-        return table(HEADERS[sheet]+['Riga Excel'],rows())
+        return table(HEADERS[sheet]+['Excel row'],rows())
     def selected(sheet, predicate):
         return [(i,r) for i,r in enumerate(sheets[sheet],2) if predicate(r)]
     def details(key, res):
         row=res['data']
-        name, kind, region = inv.name(key),res['kind'],res['region'] or 'Non indicata'
+        name, kind, region = inv.name(key),res['kind'],res['region'] or 'Unspecified'
         places=sources[key]
-        main=sheets['Inventario'][places[0][1]-2]
+        main=sheets['Inventory'][places[0][1]-2]
         comp=main[2]
         related=[(link(key),esc(t),link(target),esc(note)) for t,target,note in outgoing[key]]
         related += [(link(target),esc(t),link(key),esc(note)) for t,target,note in incoming[key]]
         operational=any(t!='Compartment' for t,_,_ in outgoing[key]+incoming[key])
-        status='Con relazioni documentate' if operational else 'Sola appartenenza o nessuna relazione'
+        status='With documented relationships' if operational else 'Compartment membership only or no relationships'
         search=' '.join(compact(v) for v in [name,kind,labels.get(kind),region,res['id'],comp,*main[5:10]]).lower()
         state = row.get('lifecycle-state') or ''
-        status_names = {'RUNNING': 'In esecuzione', 'STOPPED': 'Arrestata',
-                        'STARTING': 'In avvio', 'STOPPING': 'In arresto', 'ACTIVE': 'Attivo'}
+        status_names = {'RUNNING': 'Running', 'STOPPED': 'Stopped',
+                        'STARTING': 'Starting', 'STOPPING': 'Stopping', 'ACTIVE': 'Active'}
         badge = ('positive' if state in ('RUNNING', 'ACTIVE')
                  else 'paused' if state in ('STOPPED', 'STARTING', 'STOPPING') else 'neutral')
         parts=[f'<details class="item" id="{anchor(key)}" data-q="{esc(search)}" data-type="{esc(kind)}" data-region="{esc(region)}" data-status="{esc(status)}">',
@@ -1000,11 +1000,11 @@ def html_report(inv, sheets, sources, outgoing, incoming):
                f'<small class="private-ip">{esc(main[5]) or "—"}</small>'
                f'<small class="region">{esc(region)}</small>'
                f'<small class="compartment">{esc(comp) or "—"}</small></summary><section>',
-               f'<p>{esc(region)} &nbsp; / &nbsp; {esc(row.get("lifecycle-state")) or "Stato non indicato"}</p>',
+               f'<p>{esc(region)} &nbsp; / &nbsp; {esc(row.get("lifecycle-state")) or "State not specified"}</p>',
                f'<code>{esc(res["id"])}</code>',
-               table(['Attributo','Valore'],[(esc(k),esc(v)) for k,v in row.items() if k not in ('identifier','id')]),
-               '<h3>Relazioni documentate</h3>',table(['Origine','Relazione','Destinazione','Dettaglio'],related),
-               '<h3>Righe Excel</h3>']
+               table(['Attribute','Value'],[(esc(k),esc(v)) for k,v in row.items() if k not in ('identifier','id')]),
+               '<h3>Documented relationships</h3>',table(['Source','Relationship','Destination','Detail'],related),
+               '<h3>Excel rows</h3>']
         by_sheet=collections.defaultdict(list)
         for sheet,index in places:
             by_sheet[sheet].append((index,sheets[sheet][index-2]))
@@ -1036,7 +1036,7 @@ const cards=Array.from(document.querySelectorAll('.item'));
 const q=document.getElementById('q'), kind=document.getElementById('kind'), region=document.getElementById('region'), statusFilter=document.getElementById('status');
 function filter(){let count=0;const term=q.value.trim().toLowerCase();
   for(const row of cards){row.hidden=!(row.dataset.q.includes(term)&&(!kind.value||row.dataset.type===kind.value)&&(!region.value||row.dataset.region===region.value)&&(!statusFilter.value||row.dataset.status===statusFilter.value));if(!row.hidden)count++;}
-  document.getElementById('found').textContent=count+' di '+cards.length+' risorse';}
+  document.getElementById('found').textContent=count+' of '+cards.length+' resources';}
 function showTab(index){for(const tab of document.querySelectorAll('[data-view]'))tab.hidden=tab.dataset.view!==String(index);
   for(const b of document.querySelectorAll('button[data-tab]'))b.setAttribute('aria-current',String(b.dataset.tab===String(index)));}
 function openResource(){const obj=document.getElementById(location.hash.slice(1));if(!obj||!obj.classList.contains('item'))return;
@@ -1047,33 +1047,33 @@ document.addEventListener('click',e=>{const a=e.target.closest('a.res');if(a&&lo
 window.addEventListener('hashchange',openResource);filter();openResource();
 """
     keys=sorted(inv.resources,key=lambda k:(inv.resources[k]['kind'],inv.name(k).casefold(),k))
-    tabs=['Risorse','Regole di sicurezza','Statement IAM','Route e backup','Copertura e limiti']
-    out=['<!doctype html><html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">',
-         '<title>'+esc(inv.customer)+' | Registro tecnico OCI</title><style>'+css+'</style></head><body><header>',
-         '<div class="cap">OCI / '+esc(inv.customer)+'</div><h1>Inventario delle risorse OCI</h1>',
-         '<p>'+str(len(keys))+' oggetti · '+esc(inv.origin)+' · '+esc(', '.join(sorted(inv.regions)) or 'Region non indicata')+'</p>',
+    tabs=['Resources','Security rules','IAM policy statements','Routes and backups','Coverage and limitations']
+    out=['<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">',
+         '<title>'+esc(inv.customer)+' | OCI technical register</title><style>'+css+'</style></head><body><header>',
+         '<div class="cap">OCI / '+esc(inv.customer)+'</div><h1>OCI resource inventory</h1>',
+         '<p>'+str(len(keys))+' resources · '+esc(inv.origin)+' · '+esc(', '.join(sorted(inv.regions)) or 'Region unspecified')+'</p>',
          '<nav>'+''.join(button(i,t) for i,t in enumerate(tabs))+'</nav></header><main>',
-         '<div data-view="0"><h2>Risorse censite</h2><div class="filters"><label>Cerca risorsa<input id="q" type="search" placeholder="Nome, IP, CIDR, compartment o OCID"></label>',
-         '<label>Tipologia<select id="kind"><option value="">Tutte</option>'+options((v['kind'] for v in inv.resources.values()), labels)+'</select></label>',
-         '<label>Region<select id="region"><option value="">Tutte</option>'+options(v['region'] or 'Non indicata' for v in inv.resources.values())+'</select></label>',
-         '<label>Relazioni<select id="status"><option value="">Tutte</option><option>Con relazioni documentate</option><option>Sola appartenenza o nessuna relazione</option></select></label></div><p id="found" aria-live="polite"></p>',
-         '<div class="columns" aria-hidden="true"><span>Nome e tipologia</span><span>Stato</span>'
-         '<span>IP privato</span><span>Region</span><span>Compartment</span></div>']
+         '<div data-view="0"><h2>Inventoried resources</h2><div class="filters"><label>Search resources<input id="q" type="search" placeholder="Name, IP, CIDR, compartment or OCID"></label>',
+         '<label>Resource type<select id="kind"><option value="">All</option>'+options((v['kind'] for v in inv.resources.values()), labels)+'</select></label>',
+         '<label>Region<select id="region"><option value="">All</option>'+options(v['region'] or 'Unspecified' for v in inv.resources.values())+'</select></label>',
+         '<label>Relationships<select id="status"><option value="">All</option><option>With documented relationships</option><option>Compartment membership only or no relationships</option></select></label></div><p id="found" aria-live="polite"></p>',
+         '<div class="columns" aria-hidden="true"><span>Name and type</span><span>State</span>'
+         '<span>Private IP</span><span>Region</span><span>Compartment</span></div>']
     out.extend(details(k,inv.resources[k]) for k in keys)
     rules=selected('Security',lambda r:bool(r[4]))
     policies=selected('IAM',lambda r:r[0]=='Policy' and bool(r[6]))
     routes=selected('Networking',lambda r:r[0]=='RouteTable' and bool(r[9]) and r[7] not in ('VCN','Compartment'))
     coverage = selected('Security', lambda r: r[0] == 'NetworkSecurityGroup' and not r[4])
-    out+=['</div><div hidden data-view="1"><h2>Regole di sicurezza documentate · '+str(len(rules))+'</h2>',excel_table('Security',rules),
-          '<h3>NSG senza regole documentate</h3>' + excel_table('Security', coverage) if coverage else '',
-          '</div><div hidden data-view="2"><h2>Statement IAM · '+str(len(policies))+'</h2>',excel_table('IAM',policies),
-          '</div><div hidden data-view="3"><h2>Route configurate · '+str(len(routes))+'</h2>',excel_table('Networking',routes),
-          '<h2>Backup e assegnazioni</h2>',excel_table('Backup',enumerate(sheets['Backup'],2)),
-          '</div><div hidden data-view="4"><h2>Copertura</h2>',
-          '<p>Le relazioni usano gli identificatori esposti nelle risposte OCI. Gli oggetti disponibili solo da Resource Search possono avere una scheda con i soli dati di base. Per IAM, gli utenti e i gruppi approfonditi sono quelli visibili tramite le API IAM classiche; i domini sono censiti separatamente.</p>',
-          table(['Tipo OCI','Oggetti'],[(esc(k),str(v)) for k,v in sorted(collections.Counter(r['kind'] for r in inv.resources.values()).items())]),
-          '<h2>Note di raccolta e richieste non riuscite</h2>',table(['Region','Operazione','Ambito','Esito'],[[esc(v) for v in issue] for issue in inv.issues]),
-          '<h2>Chiamate OCI riuscite</h2>',table(['Region','Operazione','Chiamate'],[(esc(r),esc(op),str(count)) for (r,op),count in sorted(inv.checked.items())]),
+    out+=['</div><div hidden data-view="1"><h2>Documented security rules · '+str(len(rules))+'</h2>',excel_table('Security',rules),
+          '<h3>NSGs without documented rules</h3>' + excel_table('Security', coverage) if coverage else '',
+          '</div><div hidden data-view="2"><h2>IAM policy statements · '+str(len(policies))+'</h2>',excel_table('IAM',policies),
+          '</div><div hidden data-view="3"><h2>Configured routes · '+str(len(routes))+'</h2>',excel_table('Networking',routes),
+          '<h2>Backups and policy assignments</h2>',excel_table('Backup',enumerate(sheets['Backup'],2)),
+          '</div><div hidden data-view="4"><h2>Coverage</h2>',
+          '<p>Relationships use resource identifiers returned by OCI. Resources discovered only through Resource Search may have only basic attributes. IAM user and group details come from the classic IAM APIs. Identity domains are listed separately.</p>',
+          table(['OCI resource type','Resources'],[(esc(k),str(v)) for k,v in sorted(collections.Counter(r['kind'] for r in inv.resources.values()).items())]),
+          '<h2>Collection notes and failed requests</h2>',table(['Region','Operation','Scope','Result'],[[esc(v) for v in issue] for issue in inv.issues]),
+          '<h2>Successful OCI calls</h2>',table(['Region','Operation','Calls'],[(esc(r),esc(op),str(count)) for (r,op),count in sorted(inv.checked.items())]),
           '</div></main><script>'+js+'</script></body></html>']
     return ''.join(out)
 
@@ -1081,8 +1081,8 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__,formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--input',type=Path,metavar='ZIP|DIRECTORY|JSON',help='Read OCI CLI JSON exports instead of querying OCI')
     parser.add_argument('--tenancy-id',help='Tenancy OCID (defaults to OCI CLI configuration or environment)')
-    parser.add_argument('--customer', dest='cliente', metavar='NAME',help='Name used in report filenames and titles (defaults to tenancy name)')
-    parser.add_argument('--cliente', dest='cliente', help=argparse.SUPPRESS)
+    parser.add_argument('--customer', metavar='NAME',help='Name used in report filenames and titles (defaults to tenancy name)')
+    parser.add_argument('--cliente', dest='customer', help=argparse.SUPPRESS)
     parser.add_argument('--region',action='append',default=[],help='Region to scan; repeat for multiple regions (default: all subscribed regions)')
     parser.add_argument('--profile',help='OCI CLI profile (default: current profile)')
     parser.add_argument('--config-file',type=Path,help='OCI CLI configuration file')
@@ -1101,13 +1101,13 @@ def main():
         raise ValueError('The specified tenancy does not match the inventory data.')
     root_name=next((inv.name(k) for k in sorted(inv.roots) if k in inv.resources and inv.name(k)!=k),None)
     fallback = 'OCI_'+next(iter(inv.roots))[-8:] if inv.roots else 'OCI'
-    inv.customer=args.cliente or root_name or fallback
+    inv.customer=args.customer or root_name or fallback
     inv.build_links()
     sheets,refs,forward,reverse=spreadsheet_data(inv)
     tag=clean_name(inv.customer)
     args.output_dir.mkdir(parents=True,exist_ok=True)
-    xlsx=args.output_dir/f'Inventario_{tag}.xlsx'
-    report=args.output_dir/f'Registro_tecnico_{tag}.html'
+    xlsx=args.output_dir/f'Inventory_{tag}.xlsx'
+    report=args.output_dir/f'Technical_Register_{tag}.html'
     # Replace reports only after both have been generated.
     with tempfile.TemporaryDirectory(dir=args.output_dir) as tmp:
         directory=Path(tmp)

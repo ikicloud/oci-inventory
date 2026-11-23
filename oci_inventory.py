@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Inventario delle risorse OCI di una tenancy, con report Excel e HTML. Python 3.8+.
+"""Generate Excel and HTML inventory reports for an OCI tenancy.
 
-Cloud Shell:  python3 oci_inventory.py --tenancy-id <OCID>
-Un profilo:   python3 oci_inventory.py --profile CLIENTE --region eu-milan-1
-Offline:      python3 oci_inventory.py --input export.zip --cliente Cliente
-Per conservare il gruppo delle regole NSG esportate con la CLI, salva ciascun
-elenco come <OCID-del-gruppo>/rules.json nella directory o nello ZIP.
-È accettato anche un oggetto JSON con i campi "nsg-id" e "data" (lista).
---help elenca region, destinazione e opzioni di autenticazione.
+Examples:
+  python3 oci_inventory.py --tenancy-id <TENANCY_OCID>
+  python3 oci_inventory.py --profile CLIENT --region eu-milan-1
+  python3 oci_inventory.py --input export.zip --customer CLIENT
+
+For offline NSG rules, use <NSG_OCID>/rules.json or JSON with
+"nsg-id" and "data" fields.
 """
 import argparse
 import collections
@@ -31,7 +31,6 @@ from xml.etree import ElementTree as ET
 
 GLOBAL = {'Tenancy', 'Compartment', 'User', 'Group', 'Policy', 'DynamicGroup',
           'TagDefault', 'TagNamespace', 'Domain', 'IdentityDomain'}
-# Comandi di lettura; le tipologie diverse restano nell'inventario Resource Search.
 DETAILS = {
     'Instance': ('compute instance get', 'instance-id'),
     'Vnic': ('network vnic get', 'vnic-id'),
@@ -57,7 +56,7 @@ DETAILS = {
     'VolumeBackupPolicy': ('bv volume-backup-policy get', 'policy-id'),
     'ResourceSchedule': ('resource-scheduler schedule get', 'schedule-id'),
 }
-# Gli attributi pubblicati sono selezionati esplicitamente: niente user-data o configurazioni dei client.
+# Exclude instance user data and client configuration.
 FIELDS = set('''id identifier resource-type compartment-id display-name name lifecycle-state
 availability-domain vcn-id subnet-id subnet-ids nsg-ids security-list-ids route-table-id
 dhcp-options-id private-ip public-ip ip-address ip-addresses cidr-block cidr-blocks ipv6-cidr-blocks
@@ -100,17 +99,17 @@ def response_list(document):
     rows = document.get('data') if isinstance(document, dict) else document
     if isinstance(rows, list):
         return rows
-    raise ValueError('attesa una lista di risultati')
+    raise ValueError('Expected a list of results')
 
 def backup_assignment_rows(document, asset_id):
     rows = response_list(document)
     if (len(rows) > 1 or isinstance(document, dict) and document.get('opc-next-page')):
-        raise ValueError('elenco delle assegnazioni ambiguo o incompleto')
+        raise ValueError('Ambiguous or incomplete backup policy assignments')
     if rows:
         row = rows[0]
         if (not isinstance(row, dict) or row.get('asset-id') != asset_id
                 or not all(isinstance(row.get(k), str) and row[k].strip() for k in ('id', 'policy-id'))):
-            raise ValueError('assegnazione incompleta o riferita a un altro volume')
+            raise ValueError('Incomplete assignment or mismatched volume')
     return rows
 
 def is_nsg_rule(row):
@@ -171,7 +170,6 @@ class Inventory:
         if not isinstance(oid, str) or not oid:
             return None
         encoded_region = region_of(oid)
-        # OCI puo usare l'OCID della VM anche per il boot volume attachment.
         if (kind in ('Instance', 'BootVolumeAttachment')
                 and oid.startswith('ocid1.instance.')
                 and raw.get('instance-id') == oid
@@ -186,7 +184,6 @@ class Inventory:
         if self.origin == 'OCI CLI' and region and canonical and '-' not in canonical:
             canonical = region
         scope = 'Globale' if global_kind(kind, oid) else canonical or region or ''
-        # Resource Search può restituire identificatori non OCID: si conserva l'ambito.
         key = oid if oid.startswith('ocid1.') else '|'.join((scope, raw.get('compartment-id') or '', kind, oid))
         res = self.resources.setdefault(key, {
             'id': oid, 'kind': kind, 'region': scope, 'data': {}, 'sources': set(),
@@ -267,8 +264,7 @@ class Inventory:
                 self.link(key, peer, 'Riferimento in regola '+direction, rule.get('id'))
 
 class MarioAnimation:
-    """Animazione ANSI della raccolta: nessun pacchetto esterno, solo stderr."""
-    # Pixel art originale in stile platform. Ogni carattere occupa due colonne.
+    """Terminal progress animation."""
     SPRITE = (
         '  RRRR  ',
         ' RRRRRR ',
@@ -284,8 +280,6 @@ class MarioAnimation:
     WIDTH = 28
     HEIGHT = 12
 
-    # Nuvola e lettering campionati dal logo Iki-Cloud. Nella versione
-    # compatta il nome è testo, così resta leggibile anche con poche colonne.
     LOGO_WIDE = (
         "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW",
         "WWWWWWWWWWLMMSSMLWWWWWWWWWWWWWWWWW",
@@ -382,7 +376,6 @@ class MarioAnimation:
         size = self.terminal_size()
         if size.columns < 60 or size.lines < 16:
             return []
-        # Riserva una colonna per evitare il ritorno a capo automatico.
         cols = size.columns
         available = cols - 1 - self.LOGO_GAP
         raster = self.LOGO_COMPACT
@@ -393,7 +386,6 @@ class MarioAnimation:
         logo_top = (self.HEIGHT - len(logo)) // 2
         elapsed = time.monotonic() - self.started
         tick = int(elapsed * 9) % 24
-        # Movimento continuo tra chiamate, salto verso la moneta.
         jump = (0, 0, 0, 0, 0, 0, 1, 2, 3, 3, 2, 1,
                 0, 0, 0, 0, 0, 1, 2, 3, 2, 1, 0, 0)[tick]
         travel = width - len(self.SPRITE[0]) - 3
@@ -407,7 +399,6 @@ class MarioAnimation:
             put(xx, 11, 'D' if xx % 2 else 'P')
         for full_width_x in (10, 18, 25):
             cx = round(full_width_x * width / self.WIDTH)
-            # La moneta sparisce quando il personaggio la raggiunge.
             if abs((x + 4) - cx) <= 3 and jump >= 2:
                 continue
             put(cx, 0, 'G'); put(cx, 1, 'G'); put(cx, 2, 'G')
@@ -422,7 +413,7 @@ class MarioAnimation:
                            '\x1b[48;5;'+str(self.COLORS[c])+'m  \x1b[0m'
                            for c in row)
         mins, sec = divmod(int(elapsed), 60)
-        status = f'Risorse: {self.resources} | Monete/API OK: {self.checked} | {mins:02d}:{sec:02d}'
+        status = f'Resources: {self.resources} | Successful API calls: {self.checked} | {mins:02d}:{sec:02d}'
         lines = [f'OCI INVENTORY  -  {self.region}']
         for index, row in enumerate(board):
             line = pixels(row)
@@ -430,7 +421,7 @@ class MarioAnimation:
             if 0 <= logo_row < len(logo):
                 line += ' ' * self.LOGO_GAP + logo[logo_row]
             lines.append(line)
-        lines += [status[:max(1, cols-1)], ('Estrazione: '+self.operation)[:max(1, cols-1)]]
+        lines += [status[:max(1, cols-1)], ('Running: '+self.operation)[:max(1, cols-1)]]
         lines[0] = lines[0][:max(1, cols-1)]
         return lines
 
@@ -463,7 +454,6 @@ class MarioAnimation:
         if self.thread is not None:
             self.thread.join()
         if self.drawn:
-            # Rimuove il riquadro e lascia intatti i log gia' stampati.
             self.stream.write(f'\x1b[{self.drawn}A' +
                               '\r\x1b[0m\x1b[J')
             self.stream.flush()
@@ -494,7 +484,6 @@ class Cli:
                             sum(self.inv.checked.values()), len(self.inv.resources), self.started):
             job = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         if job.returncode:
-            # Il report contiene solo il codice OCI o una breve diagnostica CLI.
             match = re.search(r'"code"\s*:\s*"([^"]+)"', job.stderr)
             lines = job.stderr.strip().splitlines()
             detail = match.group(1) if match else (lines[-1][:180] if lines else f'Exit {job.returncode}')
@@ -503,40 +492,37 @@ class Cli:
             if required:
                 raise ValueError(f'{operation}: {detail}')
             return None
-        # La CLI puo' non stampare JSON per una lista vuota (exit code 0).
-        # Non interpretare una risposta vuota di una GET come dato verificato.
+        # Empty CLI output does not confirm a complete response.
         scope = ', '.join(str(v) for k, v in options.items() if k.endswith('_id'))
         output = job.stdout.strip()
         list_operation = operation.split()[-1] in ('list', 'list-users')
         if not output and list_operation:
-            # Un'eventuale query configurata in OCI CLI RC puo' nascondere i dati.
-            # Manteniamo una nota di copertura per rendere visibile l'assenza di JSON.
             self.inv.issues.append((region, operation, scope,
-                'Exit 0, stdout vuoto: nessuna riga restituita; verificare se inatteso'))
+                'Exit 0, empty stdout: no records returned; verify if unexpected'))
             if required:
-                raise ValueError(f'{operation}: stdout vuoto, copertura non verificata')
+                raise ValueError(f'{operation}: empty stdout, coverage not verified')
             return None
         try:
             response = json.loads(output)
             if not isinstance(response, (dict, list)):
-                raise ValueError('struttura JSON inattesa')
+                raise ValueError('Unexpected JSON structure')
             if operation == BACKUP_ASSIGNMENT_OP:
                 backup_assignment_rows(response, options['asset_id'])
             elif operation == NSG_RULES_OP:
                 if not all(is_nsg_rule(row) for row in response_list(response)):
-                    raise ValueError('regola NSG incompleta')
+                    raise ValueError('Incomplete NSG rule')
                 if isinstance(response, dict) and response.get('opc-next-page'):
-                    raise ValueError('elenco NSG incompleto dopo --all')
+                    raise ValueError('Incomplete NSG rule list after --all')
             elif operation == 'search resource structured-search':
                 data = response.get('data', response) if isinstance(response, dict) else None
                 items = data.get('items') if isinstance(data, dict) else data
                 if not isinstance(items, list):
-                    raise ValueError('atteso il campo data.items di Resource Search')
+                    raise ValueError('Missing Resource Search data.items field')
                 if not all(isinstance(row, dict) and isinstance(id_of(row), str) and id_of(row) for row in items):
-                    raise ValueError('elemento Resource Search senza identificatore')
+                    raise ValueError('Resource Search item without an identifier')
         except ValueError as error:
-            detail = ('Exit 0, stdout vuoto' if not output else
-                      f'Exit 0, JSON non valido o inatteso ({len(output)} caratteri): {error}')
+            detail = ('Exit 0, empty stdout' if not output else
+                      f'Exit 0, invalid or unexpected JSON ({len(output)} characters): {error}')
             self.inv.issues.append((region, operation, scope, detail))
             print(f'[WARN] {region} {operation} [{scope}]: {detail}',
                   file=sys.stderr, flush=True)
@@ -566,22 +552,22 @@ def configured_tenancy(args):
 def collect_live(args, inv):
     inv.origin = 'OCI CLI'
     if not shutil.which('oci'):
-        raise ValueError('OCI CLI non trovata. Usa OCI Cloud Shell o la modalità --input.')
+        raise ValueError('OCI CLI not found. Use OCI Cloud Shell or --input.')
     tenancy = configured_tenancy(args)
     if not tenancy.startswith('ocid1.tenancy.'):
-        raise ValueError('Indica --tenancy-id con l’OCID della tenancy da inventariare.')
+        raise ValueError('Set --tenancy-id to the tenancy OCID.')
     cli = Cli(args, inv)
     initial = args.region[0] if args.region else ''
     tenancy_rows = cli.rows('iam tenancy get', initial, tenancy_id=tenancy)
     if tenancy_rows and tenancy_rows[0].get('id') != tenancy:
-        raise ValueError('La risposta IAM non corrisponde alla tenancy richiesta.')
+        raise ValueError('IAM response does not match the requested tenancy.')
     inv.add('Tenancy', tenancy_rows[0] if tenancy_rows else {'id':tenancy}, '', 'IAM')
     subscriptions = cli.rows('iam region-subscription list', initial, tenancy_id=tenancy, all=True)
     inv.region_keys.update({r['region-key'].lower(): r['region-name'] for r in subscriptions
                             if r.get('region-key') and r.get('region-name')})
     regions = list(dict.fromkeys(args.region or sorted(r['region-name'] for r in subscriptions if r.get('region-name') and r.get('status','READY')=='READY')))
     if not regions:
-        raise ValueError('Nessuna region individuata. Specifica --region con la region da interrogare.')
+        raise ValueError('No regions found. Specify --region.')
     home = next((r['region-name'] for r in subscriptions if r.get('is-home-region')), regions[0])
     compartments = cli.rows('iam compartment list', home, compartment_id=tenancy, compartment_id_in_subtree='true', access_level='ACCESSIBLE', all=True)
     for c in compartments:
@@ -607,8 +593,7 @@ def collect_live(args, inv):
                 inv.issues.append((region,'Resource Search','','Token di paginazione ripetuto'))
                 break
             tokens.add(page)
-    print(f'[{home}] IAM: utenti, gruppi, domini e policy', file=sys.stderr, flush=True)
-    # Le API di elenco includono anche oggetti non indicizzati da Search.
+    print(f'[{home}] IAM: users, groups, domains and policies', file=sys.stderr, flush=True)
     for kind, op in [('User','iam user list'),('Group','iam group list'),('DynamicGroup','iam dynamic-group list')]:
         for row in cli.rows(op, home, compartment_id=tenancy, all=True):
             inv.add(kind, row, '', op)
@@ -626,7 +611,7 @@ def collect_live(args, inv):
                 if key:
                     inv.members.append((oid,key))
     for region in regions:
-        print(f'[{region}] compute, rete e backup', file=sys.stderr, flush=True)
+        print(f'[{region}] compute, networking and backups', file=sys.stderr, flush=True)
         for compartment in sorted(scopes):
             for kind, op in [('BootVolumeBackup','bv boot-volume-backup list'),('VolumeBackup','bv backup list')]:
                 for row in cli.rows(op,region,compartment_id=compartment,all=True):
@@ -669,10 +654,8 @@ def collect_live(args, inv):
                 op='compute boot-volume-attachment list'
                 for row in cli.rows(op,region,compartment_id=compartment,availability_domain=ad,all=True):
                     inv.add('BootVolumeAttachment',row,region,op)
-        # Le VNIC secondarie e i private IP possono comparire soltanto via attachment.
         nic_ids = {v['data']['vnic-id'] for v in inv.resources.values() if v['region']==region and v['kind']=='VnicAttachment' and v['data'].get('vnic-id')}
         nic_ids.update(k for k,v in targets if v['kind']=='Vnic')
-        # Una policy Oracle predefinita può essere referenziata senza comparire in Resource Search.
         policy_ids = {r['data']['policy-id'] for r in inv.resources.values() if r['region']==region
                       and r['kind']=='VolumeBackupPolicyAssignment' and r['data'].get('policy-id')}
         for policy_id in sorted(policy_ids - inv.resources.keys()):
@@ -687,9 +670,8 @@ def collect_live(args, inv):
     if not any(op=='search resource structured-search' for _,op in inv.checked):
         inv.issues.append(('', 'Copertura Resource Search', '', 'Nessuna region interrogata con successo; dati limitati alle API di servizio riuscite.'))
     if len(inv.resources) == 1 and not any(op == 'search resource structured-search' for _,op in inv.checked):
-        raise ValueError('Nessun inventario ottenuto. Verifica profilo, tenancy, region e permessi OCI.')
+        raise ValueError('No inventory collected. Check the OCI profile, tenancy, regions and permissions.')
 
-# Import degli export JSON della OCI CLI: Resource Search o risposte list/get.
 TYPE_BY_OCID = {
     'instance':'Instance', 'vnic':'Vnic','privateip':'PrivateIp','publicip':'PublicIp',
     'vcn':'Vcn','subnet':'Subnet','routetable':'RouteTable','securitylist':'SecurityList',
@@ -719,8 +701,7 @@ def load_exports(path, inv, region):
         except (ValueError, UnicodeError):
             inv.issues.append(('', 'Import JSON', name, 'JSON illeggibile'))
             return
-        # L'ID breve della regola è locale al gruppo. Un OCID in source o
-        # destination identifica il peer e non può identificare il proprietario.
+        # Rule IDs are unique only within their NSG.
         envelope = doc if isinstance(doc, dict) else {}
         file_path = Path(name)
         parent = envelope.get('nsg-id') or envelope.get('network-security-group-id')
@@ -770,9 +751,9 @@ def load_exports(path, inv, region):
         read_json(name, path.read_bytes())
     inv.rules.extend((owner, rule['direction'], rule) for (owner, _), rule in imported_rules.items())
     if not inv.resources and not inv.unassigned_rules:
-        raise ValueError('Nessuna risorsa riconoscibile negli export selezionati.')
+        raise ValueError('No recognizable resources found in the selected exports.')
     if len(inv.roots)>1:
-        raise ValueError('Gli export contengono più tenancy. Esegui il report su una tenancy alla volta.')
+        raise ValueError('Exports contain multiple tenancies. Process one tenancy at a time.')
     inv.origin = 'Export OCI JSON'
     inv.issues.append(('', 'Copertura offline', '', 'Solo i dati presenti nei JSON sono disponibili. Un campo vuoto indica dettaglio non esportato.'))
 
@@ -799,7 +780,6 @@ HEADERS = {
     'IAM':['Tipo','Nome','Compartment','Ambito','Stato','Gruppo / endpoint','Statement / dettaglio','OCID risorsa'],
 }
 def spreadsheet_data(inv):
-    # Durante la generazione dei report la gerarchia dei compartment è completa.
     compartment_path = lru_cache(maxsize=None)(inv.compartment)
     sheets = {sheet:[] for sheet in SHEETS}
     source_rows = collections.defaultdict(list)
@@ -885,7 +865,7 @@ def spreadsheet_data(inv):
         sheets['Inventario'].append(['Raccolta dati','Nota di copertura',scope,region,'','','','','','',msg,'',op])
     return sheets,source_rows,outgoing,incoming
 
-# Writer OOXML: tutte le stringhe sono celle di testo esplicite, anche se iniziano con "=".
+# Store strings as text to prevent spreadsheet formula execution.
 XLS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'
 REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
 PKG = 'http://schemas.openxmlformats.org/package/2006/relationships'
@@ -959,7 +939,7 @@ def esc(value):
     return html.escape(compact(value),quote=True)
 
 def table(headers, rows):
-    """Le celle contengono HTML già sottoposto a escape, o link generati dal report."""
+    """Render an HTML table."""
     heads=''.join(f'<th>{esc(cell)}</th>' for cell in headers)
     body=''.join('<tr>'+''.join(f'<td>{cell}</td>' for cell in row)+'</tr>' for row in rows)
     if not body:
@@ -1099,25 +1079,26 @@ window.addEventListener('hashchange',openResource);filter();openResource();
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__,formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('--input',type=Path,metavar='ZIP|DIRECTORY|JSON',help='Modalità offline: export JSON della OCI CLI')
-    parser.add_argument('--tenancy-id',help='OCID della tenancy; altrimenti viene letto dal profilo o dall’ambiente')
-    parser.add_argument('--cliente',help='Nome da mostrare nel report; predefinito: nome della tenancy se disponibile')
-    parser.add_argument('--region',action='append',default=[],help='Region da includere. Ripetibile. In live il default è tutte le region sottoscritte')
-    parser.add_argument('--profile',help='Profilo OCI CLI; in Cloud Shell usa il profilo corrente')
-    parser.add_argument('--config-file',type=Path,help='Percorso del file di configurazione OCI CLI')
-    parser.add_argument('--auth',help='Meccanismo di autenticazione OCI CLI, ad es. instance_principal o security_token')
-    parser.add_argument('--output-dir',type=Path,default=Path('.'),help='Directory in cui creare Excel e HTML')
-    parser.add_argument('--no-animation', action='store_true', help='Disabilita l’animazione ANSI durante le chiamate OCI')
+    parser.add_argument('--input',type=Path,metavar='ZIP|DIRECTORY|JSON',help='Read OCI CLI JSON exports instead of querying OCI')
+    parser.add_argument('--tenancy-id',help='Tenancy OCID (defaults to OCI CLI configuration or environment)')
+    parser.add_argument('--customer', dest='cliente', metavar='NAME',help='Name used in report filenames and titles (defaults to tenancy name)')
+    parser.add_argument('--cliente', dest='cliente', help=argparse.SUPPRESS)
+    parser.add_argument('--region',action='append',default=[],help='Region to scan; repeat for multiple regions (default: all subscribed regions)')
+    parser.add_argument('--profile',help='OCI CLI profile (default: current profile)')
+    parser.add_argument('--config-file',type=Path,help='OCI CLI configuration file')
+    parser.add_argument('--auth',help='OCI CLI authentication method (e.g. instance_principal or security_token)')
+    parser.add_argument('--output-dir',type=Path,default=Path('.'),help='Directory for the generated Excel and HTML reports')
+    parser.add_argument('--no-animation', action='store_true', help='Disable terminal animation during OCI CLI calls')
     args=parser.parse_args()
     inv=Inventory()
     if args.input:
         if len(args.region)>1:
-            parser.error('In modalità offline si può indicare una sola region di fallback per gli OCID privi di region.')
+            parser.error('Offline mode accepts only one fallback region for OCIDs without a region.')
         load_exports(args.input,inv,args.region[0] if args.region else '')
     else:
         collect_live(args,inv)
     if args.tenancy_id and inv.roots and inv.roots!={args.tenancy_id}:
-        raise ValueError('La tenancy indicata non coincide con quella rilevata nei dati.')
+        raise ValueError('The specified tenancy does not match the inventory data.')
     root_name=next((inv.name(k) for k in sorted(inv.roots) if k in inv.resources and inv.name(k)!=k),None)
     fallback = 'OCI_'+next(iter(inv.roots))[-8:] if inv.roots else 'OCI'
     inv.customer=args.cliente or root_name or fallback
@@ -1127,14 +1108,14 @@ def main():
     args.output_dir.mkdir(parents=True,exist_ok=True)
     xlsx=args.output_dir/f'Inventario_{tag}.xlsx'
     report=args.output_dir/f'Registro_tecnico_{tag}.html'
-    # Ogni file viene sostituito con un rename atomico dopo la generazione di entrambi.
+    # Replace reports only after both have been generated.
     with tempfile.TemporaryDirectory(dir=args.output_dir) as tmp:
         directory=Path(tmp)
         write_xlsx(directory/xlsx.name,sheets)
         (directory/report.name).write_text(html_report(inv,sheets,refs,forward,reverse),encoding='utf-8')
         os.replace(directory/xlsx.name,xlsx)
         os.replace(directory/report.name,report)
-    summary = f'{len(inv.resources)} oggetti · {len(inv.edges)} relazioni · {len(inv.issues)} note di raccolta'
+    summary = f'{len(inv.resources)} resources · {len(inv.edges)} relations · {len(inv.issues)} collection notes'
     try:
         print(summary)
     except UnicodeEncodeError:
@@ -1146,4 +1127,4 @@ if __name__=='__main__':
     try:
         main()
     except (OSError, ValueError, zipfile.BadZipFile, configparser.Error) as error:
-        sys.exit('Errore: '+str(error))
+        sys.exit('Error: '+str(error))

@@ -44,7 +44,7 @@ To update an existing checkout, run `git pull --ff-only` from its directory. To 
 ### 2. Run with a specific OCI CLI profile
 
 ```bash
-python3 oci_inventory.py --profile CLIENTE --region eu-milan-1
+python3 oci_inventory.py --profile CLIENTE --region eu-milan-1 
 ```
 
 You can specify multiple regions by repeating `--region`:
@@ -62,7 +62,7 @@ The script also supports `--config-file` and `--auth` to pass the corresponding 
 ### 3. Generate reports from JSON exports (offline)
 
 ```bash
-bash run.sh --input examples/sample-inventory.json --customer Demo
+bash run.sh --input sample-inventory.json --customer Demo
 ```
 
 `--input` accepts a **JSON file**, a **directory containing JSON files**, or a **ZIP archive** of OCI CLI exports. In offline mode, the reports can only contain information present in the supplied exports.

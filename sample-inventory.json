@@ -1,0 +1,32 @@
+{
+  "data": [
+    {
+      "id": "ocid1.vcn.oc1.eu-milan-1.syntheticdemo",
+      "display-name": "Demo VCN",
+      "cidr-block": "192.0.2.0/24"
+    },
+    {
+      "id": "ocid1.subnet.oc1.eu-milan-1.syntheticdemo",
+      "display-name": "Demo subnet",
+      "cidr-block": "192.0.2.0/26",
+      "vcn-id": "ocid1.vcn.oc1.eu-milan-1.syntheticdemo"
+    },
+    {
+      "id": "ocid1.instance.oc1.eu-milan-1.syntheticdemo",
+      "display-name": "Demo VM",
+      "lifecycle-state": "RUNNING"
+    },
+    {
+      "id": "ocid1.vnic.oc1.eu-milan-1.syntheticdemo",
+      "display-name": "Demo VNIC",
+      "private-ip": "192.0.2.10",
+      "subnet-id": "ocid1.subnet.oc1.eu-milan-1.syntheticdemo"
+    },
+    {
+      "id": "ocid1.vnicattachment.oc1.eu-milan-1.syntheticdemo",
+      "instance-id": "ocid1.instance.oc1.eu-milan-1.syntheticdemo",
+      "vnic-id": "ocid1.vnic.oc1.eu-milan-1.syntheticdemo",
+      "lifecycle-state": "ATTACHED"
+    }
+  ]
+}

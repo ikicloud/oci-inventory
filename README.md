@@ -29,13 +29,17 @@ The Python script uses only the **standard library**: no `pip install` or additi
 
 ### 1. Run in OCI Cloud Shell
 
-Upload or copy `oci_inventory.py` to Cloud Shell and run:
+From Cloud Shell, clone the repository and run the inventory using the current OCI CLI session.
 
 ```bash
-python3 oci_inventory.py --tenancy-id <TENANCY_OCID>
+git clone https://github.com/ikicloud/oci-inventory.git
+cd oci-inventory
+bash run.sh
 ```
 
-By default, the script attempts to collect data from all subscribed regions marked as ready. If the tenancy ID is available through the selected OCI CLI profile or environment, `--tenancy-id` may be omitted.
+The launcher runs the Python script and saves both reports under `reports/` inside the checkout. It accepts the same options as the script. For example, `bash run.sh --region eu-milan-1` restricts collection to Milan. If the tenancy cannot be detected from the environment or profile, pass its OCID with `--tenancy-id`.
+
+To update an existing checkout, run `git pull --ff-only` from its directory. To invoke Python directly, use `python3 oci_inventory.py --output-dir reports`.
 
 ### 2. Run with a specific OCI CLI profile
 
@@ -49,7 +53,7 @@ You can specify multiple regions by repeating `--region`:
 python3 oci_inventory.py \
   --region eu-milan-1 \
   --region eu-frankfurt-1 \
-  --cliente "Example Customer" \
+  --customer "Example Customer" \
   --output-dir ./reports
 ```
 
@@ -58,7 +62,7 @@ The script also supports `--config-file` and `--auth` to pass the corresponding 
 ### 3. Generate reports from JSON exports (offline)
 
 ```bash
-python3 oci_inventory.py --input ./exports.zip --cliente "Example Customer"
+bash run.sh --input examples/sample-inventory.json --customer Demo
 ```
 
 `--input` accepts a **JSON file**, a **directory containing JSON files**, or a **ZIP archive** of OCI CLI exports. In offline mode, the reports can only contain information present in the supplied exports.
@@ -73,7 +77,7 @@ Alternatively, a JSON object with an `nsg-id` field and a `data` array is suppor
 
 ## Generated reports
 
-Unless `--output-dir` is provided, both files are written to the current working directory. The customer/tenancy name is sanitized for use in filenames.
+When running Python directly, unless `--output-dir` is provided, both files are written to the current working directory. The customer/tenancy name is sanitized for use in filenames.
 
 | File | Description |
 | --- | --- |
@@ -104,7 +108,7 @@ python3 oci_inventory.py --help
 | `--config-file` | Specify a custom OCI CLI configuration file. |
 | `--auth` | Select an OCI CLI authentication mechanism. |
 | `--region` | Restrict live inventory to a region; repeat to add more regions. |
-| `--cliente` | Set the customer name displayed in reports and used in filenames. |
+| `--customer` | Set the customer name displayed in reports and used in filenames. |
 | `--output-dir` | Select the output directory. |
 | `--input` | Read OCI CLI JSON exports instead of querying OCI. |
 | `--no-animation` | Disable the optional terminal animation during live collection. |

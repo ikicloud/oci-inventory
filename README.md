@@ -81,12 +81,12 @@ When running Python directly, unless `--output-dir` is provided, both files are 
 
 | File | Description |
 | --- | --- |
-| `Inventario_<customer>.xlsx` | Structured Excel inventory, with filters and frozen header rows. |
-| `Registro_tecnico_<customer>.html` | Standalone interactive HTML technical register, viewable in a browser. |
+| `Inventory_<customer>.xlsx` | Structured Excel inventory with filters and frozen header rows. |
+| `Technical_register_<customer>.html` | Standalone interactive HTML technical register, viewable in a browser. |
 
 The Excel workbook contains six worksheets:
 
-1. **Inventario** — consolidated inventory, resource identifiers, location, network attributes, and relationships.
+1. **Inventory** — consolidated inventory, resource identifiers, location, network attributes, and relationships.
 2. **Compute e Storage** — compute instances, volumes, attachments, shapes, and associated details.
 3. **Networking** — network resources, associations, routing, and related identifiers.
 4. **Security** — security resources and available rules.

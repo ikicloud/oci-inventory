@@ -117,7 +117,7 @@ python3 oci_inventory.py --help
 
 - **Read-only in OCI:** the script uses OCI CLI search, list, and get operations. It does not create, update, or delete OCI resources.
 - **Permissions and API coverage matter:** Resource Search is used for broad discovery; additional details are collected for supported resource types. Some resources may therefore appear with basic metadata only.
-- **Not a completeness guarantee:** unavailable permissions, failed calls, API limitations, or incomplete offline exports can result in missing details. Review the **Copertura e limiti** section of the HTML report and the collection notes in the Excel inventory.
+- **Not a completeness guarantee:** unavailable permissions, failed calls, API limitations, or incomplete offline exports can result in missing details. Review the **Coverage and limitations** section of the HTML report and the collection notes in the Excel inventory.
 - **IAM coverage varies:** classic IAM users/groups and identity domains are not interchangeable; identity-domain details are not exhaustively expanded.
 - **Local output files are replaced** if a report with the same name already exists in the selected output directory.
 

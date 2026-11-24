@@ -44,7 +44,7 @@ To update an existing checkout, run `git pull --ff-only` from its directory. To 
 ### 2. Run with a specific OCI CLI profile
 
 ```bash
-python3 oci_inventory.py --profile CLIENTE --region eu-milan-1 
+python3 oci_inventory.py --profile CUSTOMER --region eu-milan-1
 ```
 
 You can specify multiple regions by repeating `--region`:
@@ -87,7 +87,7 @@ When running Python directly, unless `--output-dir` is provided, both files are 
 The Excel workbook contains six worksheets:
 
 1. **Inventory** — consolidated inventory, resource identifiers, location, network attributes, and relationships.
-2. **Compute e Storage** — compute instances, volumes, attachments, shapes, and associated details.
+2. **Compute and Storage** — compute instances, volumes, attachments, shapes, and associated details.
 3. **Networking** — network resources, associations, routing, and related identifiers.
 4. **Security** — security resources and available rules.
 5. **Backup** — backups, policies, assignments, and schedules.

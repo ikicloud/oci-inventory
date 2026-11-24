@@ -1082,7 +1082,6 @@ def main():
     parser.add_argument('--input',type=Path,metavar='ZIP|DIRECTORY|JSON',help='Read OCI CLI JSON exports instead of querying OCI')
     parser.add_argument('--tenancy-id',help='Tenancy OCID (defaults to OCI CLI configuration or environment)')
     parser.add_argument('--customer', metavar='NAME',help='Name used in report filenames and titles (defaults to tenancy name)')
-    parser.add_argument('--cliente', dest='customer', help=argparse.SUPPRESS)
     parser.add_argument('--region',action='append',default=[],help='Region to scan; repeat for multiple regions (default: all subscribed regions)')
     parser.add_argument('--profile',help='OCI CLI profile (default: current profile)')
     parser.add_argument('--config-file',type=Path,help='OCI CLI configuration file')
